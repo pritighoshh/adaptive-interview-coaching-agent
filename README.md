@@ -99,6 +99,10 @@ TRAINED | reward=16.51 | mean_quality=0.711
 | Tactical | DQN Agent | Which question strategy | Double DQN with experience replay |
 | Evaluation | AnswerEvaluatorTool | Answer quality score | Custom 3-signal rubric |
 
+## System Architecture
+
+![AICA Architecture](architecture.png)
+
 ### State Space (12 dimensions)
 - Topic knowledge scores × 5 (algorithms, system_design, behavioral, databases, ml_concepts)
 - Current difficulty one-hot encoding × 3 (easy, medium, hard)
