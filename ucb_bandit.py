@@ -72,6 +72,13 @@ class UCBBandit:
         self.values[idx] += (reward - self.values[idx]) / n
         self.rewards_log[arm].append(reward)
 
+    def get_ucb_scores(self) -> Dict[str, float]:
+        """Return current UCB1 scores for all arms — used by message bus."""
+        if self.total_pulls == 0:
+            return {arm: float("inf") for arm in self.arms}
+        scores = self._compute_ucb()
+        return {arm: float(scores[i]) for i, arm in enumerate(self.arms)}
+
     def get_stats(self) -> Dict[str, dict]:
         """Return per-arm statistics for reporting."""
         return {
