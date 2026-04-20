@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Optional
 
 from answer_evaluator import AnswerEvaluatorTool
+from session_memory   import SessionMemory
 
 # ── Topic & difficulty definitions ──────────────────────────────────────────
 TOPICS = ["algorithms", "system_design", "behavioral", "databases", "ml_concepts"]
@@ -94,14 +95,15 @@ class InterviewEnvironment:
         -0.1 if repeated topic      (encourage breadth)
     """
 
-    STATE_DIM = 12
-    _evaluator: "AnswerEvaluatorTool | None" = None   # shared across instances
+    STATE_DIM = 17   # 12 base + 5 memory features
+    _evaluator: "AnswerEvaluatorTool | None" = None
 
     def __init__(self, max_questions: int = 20, use_evaluator: bool = True):
         self.max_questions = max_questions
         self.use_evaluator = use_evaluator
         if use_evaluator and InterviewEnvironment._evaluator is None:
             InterviewEnvironment._evaluator = AnswerEvaluatorTool()
+        self.memory = SessionMemory(topics=TOPICS, max_questions=max_questions)
         self.reset()
 
     # ── Public API ──────────────────────────────────────────────────────────
@@ -114,6 +116,7 @@ class InterviewEnvironment:
         self.topic_history: List[str] = []
         self.score_history: List[float] = []
         self.done = False
+        self.memory.reset()
         return self._get_state()
 
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, dict]:
@@ -143,6 +146,14 @@ class InterviewEnvironment:
             "answer_quality": answer_quality,
             "action_name": QUESTION_ACTIONS[action],
         }
+        # Write to session memory
+        self.memory.record(
+            topic=self.current_topic,
+            difficulty=self.current_difficulty,
+            quality=answer_quality,
+            action=QUESTION_ACTIONS[action],
+            reward=reward,
+        )
         return self._get_state(), reward, self.done, info
 
     def get_available_question(self) -> str:
@@ -275,4 +286,5 @@ class InterviewEnvironment:
             self.candidate.questions_asked / self.max_questions,
             self.last_answer_quality,
         ])
-        return np.concatenate([topic_scores, diff_enc, misc]).astype(np.float32)
+        memory_vec = self.memory.get_memory_vector()
+        return np.concatenate([topic_scores, diff_enc, misc, memory_vec]).astype(np.float32)
