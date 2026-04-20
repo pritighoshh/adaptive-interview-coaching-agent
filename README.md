@@ -11,12 +11,16 @@ An agentic AI system that uses reinforcement learning to personalise and optimis
 ## Project Structure
 
 ```
-interview_rl/
-├── environment.py         # Interview simulation environment (MDP)
-├── dqn_agent.py           # Double DQN agent (pure NumPy)
-├── ucb_bandit.py          # UCB1 Bandit + Thompson Sampling baseline
+adaptive-interview-coaching-agent/
 ├── answer_evaluator.py    # Custom tool: answer quality scorer
+├── dqn_agent.py           # Double DQN agent (pure NumPy)
+├── environment.py         # Interview simulation environment (MDP)
 ├── main.py                # Training loop, evaluation, visualisations
+├── ucb_bandit.py          # UCB1 Bandit + Thompson Sampling baseline
+├── architecture.png       # System architecture diagram
+├── README.md
+├── LICENSE
+├── Reinforcement Learning for Agentic AI Systems.pdf
 └── results/               # Generated after running main.py
     ├── training_results.png
     ├── before_after.png
