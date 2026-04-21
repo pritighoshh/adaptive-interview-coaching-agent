@@ -69,6 +69,36 @@ QUESTION_ACTIONS = [
 N_ACTIONS = len(QUESTION_ACTIONS)
 
 
+# ── Candidate profile types ──────────────────────────────────────────────────
+
+CANDIDATE_PROFILES = {
+    "standard": {
+        "knowledge_range": (0.2, 0.8),
+        "confidence_range": (0.3, 0.9),
+        "fatigue_rate":    0.05,
+        "description":     "Mixed knowledge, average confidence",
+    },
+    "beginner": {
+        "knowledge_range": (0.05, 0.35),   # low knowledge across all topics
+        "confidence_range": (0.15, 0.45),  # low confidence
+        "fatigue_rate":    0.07,           # tires faster under pressure
+        "description":     "Entry-level candidate with limited experience",
+    },
+    "expert": {
+        "knowledge_range": (0.65, 0.95),   # high knowledge
+        "confidence_range": (0.70, 0.99),  # high confidence
+        "fatigue_rate":    0.03,           # resilient, stays sharp longer
+        "description":     "Senior candidate with deep expertise",
+    },
+    "uneven": {
+        "knowledge_range": (0.1, 0.9),    # wide variance — expert in some, weak in others
+        "confidence_range": (0.4, 0.8),
+        "fatigue_rate":    0.05,
+        "description":     "Specialised candidate with uneven topic coverage",
+    },
+}
+
+
 @dataclass
 class CandidateProfile:
     """Tracks simulated candidate knowledge across topics."""
@@ -76,8 +106,34 @@ class CandidateProfile:
         t: random.uniform(0.2, 0.8) for t in TOPICS
     })
     confidence: float = field(default_factory=lambda: random.uniform(0.3, 0.9))
-    fatigue: float = 0.0          # increases each turn
+    fatigue: float = 0.0
     questions_asked: int = 0
+    profile_type: str = "standard"
+
+
+def make_candidate(profile_type: str = "standard") -> CandidateProfile:
+    """Factory that creates a candidate matching the given profile."""
+    cfg = CANDIDATE_PROFILES.get(profile_type, CANDIDATE_PROFILES["standard"])
+    lo, hi = cfg["knowledge_range"]
+    clo, chi = cfg["confidence_range"]
+
+    if profile_type == "uneven":
+        # Give 2 topics high knowledge, 3 topics low knowledge
+        topics_list = TOPICS[:]
+        random.shuffle(topics_list)
+        knowledge = {}
+        for i, t in enumerate(topics_list):
+            knowledge[t] = random.uniform(0.65, 0.95) if i < 2 else random.uniform(0.05, 0.30)
+    else:
+        knowledge = {t: random.uniform(lo, hi) for t in TOPICS}
+
+    return CandidateProfile(
+        knowledge=knowledge,
+        confidence=random.uniform(clo, chi),
+        fatigue=0.0,
+        questions_asked=0,
+        profile_type=profile_type,
+    )
 
 
 class InterviewEnvironment:
@@ -98,9 +154,11 @@ class InterviewEnvironment:
     STATE_DIM = 17   # 12 base + 5 memory features
     _evaluator: "AnswerEvaluatorTool | None" = None
 
-    def __init__(self, max_questions: int = 20, use_evaluator: bool = True):
+    def __init__(self, max_questions: int = 20, use_evaluator: bool = True,
+                 profile_type: str = "standard"):
         self.max_questions = max_questions
         self.use_evaluator = use_evaluator
+        self.profile_type  = profile_type
         if use_evaluator and InterviewEnvironment._evaluator is None:
             InterviewEnvironment._evaluator = AnswerEvaluatorTool()
         self.memory = SessionMemory(topics=TOPICS, max_questions=max_questions)
@@ -109,7 +167,7 @@ class InterviewEnvironment:
     # ── Public API ──────────────────────────────────────────────────────────
 
     def reset(self) -> np.ndarray:
-        self.candidate = CandidateProfile()
+        self.candidate = make_candidate(self.profile_type)
         self.current_topic = random.choice(TOPICS)
         self.current_difficulty = "easy"
         self.last_answer_quality = 0.5
@@ -137,14 +195,31 @@ class InterviewEnvironment:
         self.score_history.append(answer_quality)
         self.last_answer_quality = answer_quality
         self.candidate.questions_asked += 1
-        self.candidate.fatigue = min(1.0, self.candidate.fatigue + 0.05)
+        self.candidate.fatigue = min(1.0, self.candidate.fatigue +
+                                     CANDIDATE_PROFILES[self.profile_type]["fatigue_rate"])
 
         self.done = self.candidate.questions_asked >= self.max_questions
+
+        # ── Time budget signals ──────────────────────────────────────────────
+        questions_remaining = self.max_questions - self.candidate.questions_asked
+        topics_covered      = len(set(self.topic_history))
+        hard_used           = self.topic_history.count("hard") if self.topic_history else 0
+
         info = {
-            "topic": self.current_topic,
-            "difficulty": self.current_difficulty,
-            "answer_quality": answer_quality,
-            "action_name": QUESTION_ACTIONS[action],
+            "topic":              self.current_topic,
+            "difficulty":         self.current_difficulty,
+            "answer_quality":     answer_quality,
+            "action_name":        QUESTION_ACTIONS[action],
+            # Deadline & resource management signals
+            "questions_remaining":      questions_remaining,
+            "topics_covered":           topics_covered,
+            "coverage_fraction":        round(topics_covered / len(TOPICS), 2),
+            "in_final_stretch":         questions_remaining <= 5,
+            "session_recommendation":   (
+                "wrap_up"            if questions_remaining <= 3  else
+                "explore_new_topics" if topics_covered < 2 and questions_remaining > 8
+                else "deepen_weak_areas"
+            ),
         }
         # Write to session memory
         self.memory.record(
